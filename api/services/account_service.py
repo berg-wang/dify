@@ -594,39 +594,80 @@ class TenantService:
 
         tenant.encrypt_public_key = generate_key_pair(tenant.id)
         db.session.commit()
-        return tenant
-
+        return tenant 
+    
     @staticmethod
     def create_owner_tenant_if_not_exist(
         account: Account, name: Optional[str] = None, is_setup: Optional[bool] = False
     ):
-        """Check if user have a workspace or not"""
-        available_ta = (
-            TenantAccountJoin.query.filter_by(account_id=account.id).order_by(TenantAccountJoin.id.asc()).first()
-        )
-
-        if available_ta:
-            return
-
-        """Create owner tenant if not exist"""
+        """Check if create workspace is allowed"""
         if not FeatureService.get_system_features().is_allow_create_workspace and not is_setup:
-            raise WorkSpaceNotAllowedCreateError()
-
-        if name:
-            tenant = TenantService.create_tenant(name=name, is_setup=is_setup)
+            raise WorkSpaceNotAllowedCreateError("Workspace is not allowd to be created, please contact admin to enable the function.")
+            
+        # Create user own tenant if or not exist
+        owner_tenant_name = f"{account.name}'s Workspace"
+        owner_tenant = Tenant.query.filter_by(name=owner_tenant_name).first()
+        if owner_tenant:
+            available_ta = (
+                TenantAccountJoin.query.filter_by(account_id=account.id,tenant_id=owner_tenant.id).order_by(TenantAccountJoin.id.asc()).first()
+            )
+            if available_ta:
+                return
+            TenantService.create_tenant_member(owner_tenant, account, role="owner")
         else:
-            tenant = TenantService.create_tenant(name=f"{account.name}'s Workspace", is_setup=is_setup)
-        TenantService.create_tenant_member(tenant, account, role="owner")
+            if name:
+                tenant = TenantService.create_tenant(name=name, is_setup=is_setup)
+            else:
+                tenant = TenantService.create_tenant(name=f"{account.name}'s Workspace", is_setup=is_setup)
+            TenantService.create_tenant_member(tenant, account, role="owner")
         account.current_tenant = tenant
         db.session.commit()
         tenant_was_created.send(tenant)
+
+    @staticmethod
+    def join_default_tenant(
+        account: Account, name: Optional[str] = None
+    ):
+        """Join Default Tenant"""
+        default_account = TenantService.get_default_account(name)
+        default_tenant = TenantService.get_default_tenant(default_account)
+        # Check if user have joined public workspace or not
+        available_ta = (
+            TenantAccountJoin.query.filter_by(account_id=account.id, tenant_id=default_tenant.id).order_by(TenantAccountJoin.id.asc()).first()
+        )
+        if available_ta:
+            return
+        TenantService.create_tenant_member(default_tenant, account, role="editor")
+        db.session.commit()
+        
+    @staticmethod
+    def get_default_account(name: Optional[str] = None) -> Account:
+        """Get default tenant account"""
+        if name:
+            account = Account.query.filter_by(name=name).first()
+            if not account:
+                raise AccountNotFoundError(f"Default Account <{name}> not found.")
+            return account
+        raise AccountNotFoundError("Default account env <DEFAULT_ACCOUNT_NAME> not set.")
+            
+    @staticmethod
+    def get_default_tenant(default_account:Account)->Tenant:
+        """Get default tenant"""
+        default_tenant_account_join = TenantAccountJoin.query.filter_by(account_id=default_account.id).first()
+        if not default_tenant_account_join:
+            raise TenantNotFoundError("Default tenant join not found.")
+        default_tenant = Tenant.query.filter_by(id=default_tenant_account_join.tenant_id).first()
+        if not default_tenant:
+            raise TenantNotFoundError("Default tenant not found.")
+        return default_tenant
+
 
     @staticmethod
     def create_tenant_member(tenant: Tenant, account: Account, role: str = "normal") -> TenantAccountJoin:
         """Create tenant member"""
         if role == TenantAccountRole.OWNER.value:
             if TenantService.has_roles(tenant, [TenantAccountRole.OWNER]):
-                logging.error(f"Tenant {tenant.id} has already an owner.")
+                logging.error("Tenant %s has already an owner.", tenant.id)
                 raise Exception("Tenant already has an owner.")
 
         ta = db.session.query(TenantAccountJoin).filter_by(tenant_id=tenant.id, account_id=account.id).first()

@@ -545,6 +545,30 @@ class AuthConfig(BaseSettings):
         default=None,
     )
 
+    KEYCLOAK_CLIENT_ID: Optional[str] = Field(
+        description="KeyCloak OAuth client ID",
+        default=None,
+    )
+
+    KEYCLOAK_CLIENT_SECRET: Optional[str] = Field(
+        description="KeyCloak OAuth client secret",
+        default=None,
+    )
+
+    KEYCLOAK_BASE_URL: Optional[str] = Field(
+        description="KeyCloak base url, must including the http/https prefix",
+        default=None,
+    )
+    KEYCLOAK_REALM: Optional[str] = Field(
+        description="KeyCloak realm",
+        default=None,
+    )
+    
+    DEFAULT_ACCOUNT_NAME: Optional[str] = Field(
+        description="Use default account's tenant as the default tenant for OAuth login users",
+        default="admin",
+    )
+
     ACCESS_TOKEN_EXPIRE_MINUTES: PositiveInt = Field(
         description="Expiration time for access tokens in minutes",
         default=60,

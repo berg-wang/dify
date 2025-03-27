@@ -1,7 +1,7 @@
 import urllib.parse
 from dataclasses import dataclass
 from typing import Optional
-
+from configs import dify_config
 import requests
 
 
@@ -131,3 +131,55 @@ class GoogleOAuth(OAuth):
 
     def _transform_user_info(self, raw_info: dict) -> OAuthUserInfo:
         return OAuthUserInfo(id=str(raw_info["sub"]), name="", email=raw_info["email"])
+
+# add keylaok oauth login function
+class KeyCloakOAuth(OAuth):
+    _ISSUER_URL = f"{dify_config.KEYCLOAK_BASE_URL}/auth/realms/{dify_config.KEYCLOAK_REALM}"
+    _AUTH_URL = _ISSUER_URL+"/protocol/openid-connect/auth"
+    _TOKEN_URL = _ISSUER_URL+"/protocol/openid-connect/token"
+    _USER_INFO_URL = _ISSUER_URL+"/protocol/openid-connect/userinfo"
+
+    def get_authorization_url(self, invite_token: Optional[str] = None):
+        params = {
+            "client_id": self.client_id,
+            "redirect_uri": self.redirect_uri,
+            "scope": "openid profile email",
+            "response_type": "code",
+        }
+        if invite_token:
+            params["state"] = invite_token
+            
+        return f"{self._AUTH_URL}?{urllib.parse.urlencode(params)}"
+   
+    def get_access_token(self, code: str):
+        data = {
+            "client_id": self.client_id,
+            "client_secret": self.client_secret,
+            "code": code,
+            "redirect_uri": self.redirect_uri,
+            "grant_type": "authorization_code"
+        }
+        headers = {"Accept": "application/json"}
+        response = requests.post(self._TOKEN_URL, data=data, headers=headers)
+        
+        response_json = response.json()
+        if 'error' in response_json:
+            raise ValueError(f"Keycloak error: {response_json.get('error_description')}")
+            
+        return response_json["access_token"]
+
+    def get_raw_user_info(self, token: str):
+        headers = {
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json"
+        }
+        response = requests.get(self._USER_INFO_URL, headers=headers)
+        response.raise_for_status()
+        return response.json()
+
+    def _transform_user_info(self, raw_info: dict) -> OAuthUserInfo:
+        return OAuthUserInfo(
+            id=raw_info.get("sub"),
+            name=raw_info.get("name") or raw_info.get("preferred_username") or "",
+            email=raw_info.get("email")
+        )

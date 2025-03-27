@@ -14,11 +14,11 @@ from constants.languages import languages
 from events.tenant_event import tenant_was_created
 from extensions.ext_database import db
 from libs.helper import extract_remote_ip
-from libs.oauth import GitHubOAuth, GoogleOAuth, OAuthUserInfo
+from libs.oauth import GitHubOAuth, GoogleOAuth, OAuthUserInfo, KeyCloakOAuth
 from models import Account
 from models.account import AccountStatus
 from services.account_service import AccountService, RegisterService, TenantService
-from services.errors.account import AccountNotFoundError, AccountRegisterError
+from services.errors.account import AccountNotFoundError, AccountRegisterError, TenantNotFoundError
 from services.errors.workspace import WorkSpaceNotAllowedCreateError, WorkSpaceNotFoundError
 from services.feature_service import FeatureService
 
@@ -43,8 +43,16 @@ def get_oauth_providers():
                 client_secret=dify_config.GOOGLE_CLIENT_SECRET,
                 redirect_uri=dify_config.CONSOLE_API_URL + "/console/api/oauth/authorize/google",
             )
+        if not dify_config.KEYCLOAK_CLIENT_ID or not dify_config.KEYCLOAK_CLIENT_SECRET:
+            keycloak_oauth = None
+        else:
+            keycloak_oauth = KeyCloakOAuth(
+                client_id=dify_config.KEYCLOAK_CLIENT_ID,
+                client_secret=dify_config.KEYCLOAK_CLIENT_SECRET,
+                redirect_uri=dify_config.CONSOLE_API_URL + "/console/api/oauth/authorize/keycloak",
+            )
 
-        OAUTH_PROVIDERS = {"github": github_oauth, "google": google_oauth}
+        OAUTH_PROVIDERS = {"github": github_oauth, "google": google_oauth,"keycloak": keycloak_oauth}
         return OAUTH_PROVIDERS
 
 
@@ -113,16 +121,22 @@ class OAuthCallback(Resource):
             account.initialized_at = datetime.now(UTC).replace(tzinfo=None)
             db.session.commit()
 
+        # 创建用户自己的workspace(根据自己使用场景，决定是否需要创建)
         try:
             TenantService.create_owner_tenant_if_not_exist(account)
-        except Unauthorized:
-            return redirect(f"{dify_config.CONSOLE_WEB_URL}/signin?message=Workspace not found.")
-        except WorkSpaceNotAllowedCreateError:
+        except WorkSpaceNotAllowedCreateError as e:
             return redirect(
-                f"{dify_config.CONSOLE_WEB_URL}/signin"
-                "?message=Workspace not found, please contact system admin to invite you to join in a workspace."
+                f"{dify_config.CONSOLE_WEB_URL}/signin?message={e}"
             )
-
+        # 加入admin的workspace(admin用户是初始化用户，根据自己使用场景，决定是否需要创建)
+        try:
+           default_account_name = dify_config.DEFAULT_ACCOUNT_NAME
+           TenantService.join_default_tenant(account,default_account_name)
+        except AccountNotFoundError as e:
+           return redirect(f"{dify_config.CONSOLE_WEB_URL}/signin?message={e}")
+        except TenantNotFoundError as e:
+           return redirect(f"{dify_config.CONSOLE_WEB_URL}/signin?message={e}")
+           
         token_pair = AccountService.login(
             account=account,
             ip_address=extract_remote_ip(request),
