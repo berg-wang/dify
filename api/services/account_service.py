@@ -602,14 +602,17 @@ class TenantService:
     ):
         """Check if create workspace is allowed"""
         if not FeatureService.get_system_features().is_allow_create_workspace and not is_setup:
-            raise WorkSpaceNotAllowedCreateError("Workspace is not allowd to be created, please contact admin to enable the function.")
+            raise WorkSpaceNotAllowedCreateError(
+                "Workspace is not allowd to be created, please contact admin to enable the function."
+                "")
             
         # Create user own tenant if or not exist
         owner_tenant_name = f"{account.name}'s Workspace"
         owner_tenant = Tenant.query.filter_by(name=owner_tenant_name).first()
         if owner_tenant:
             available_ta = (
-                TenantAccountJoin.query.filter_by(account_id=account.id,tenant_id=owner_tenant.id).order_by(TenantAccountJoin.id.asc()).first()
+                TenantAccountJoin.query.filter_by(account_id=account.id,tenant_id=owner_tenant.id)
+                .order_by(TenantAccountJoin.id.asc()).first()
             )
             if available_ta:
                 return
@@ -633,7 +636,8 @@ class TenantService:
         default_tenant = TenantService.get_default_tenant(default_account)
         # Check if user have joined public workspace or not
         available_ta = (
-            TenantAccountJoin.query.filter_by(account_id=account.id, tenant_id=default_tenant.id).order_by(TenantAccountJoin.id.asc()).first()
+            TenantAccountJoin.query.filter_by(account_id=account.id, tenant_id=default_tenant.id)
+            .order_by(TenantAccountJoin.id.asc()).first()
         )
         if available_ta:
             return
